@@ -102,6 +102,19 @@ type AuthorizationCodeHandlerConfig struct {
 	// https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices#server-side-request-forgery-ssrf
 	// If not provided, http.DefaultClient will be used.
 	Client *http.Client
+
+	// NewTokenSource is an optional function that can be set to construct the
+	// token source that will be used by the [AuthorizationCodeHandler]. If
+	// non-nil, it is called after the authorization code is successfully
+	// exchanged for a token in [AuthorizationCodeHandler.Authorize]
+	// to obtain the [oauth2.TokenSource] returned by
+	// [AuthorizationCodeHandler.TokenSource]. The default is to call
+	// [oauth2.Config.TokenSource].
+	//
+	// Clients can ensure the same token source is used throughout the connection
+	// lifecycle by returning it from an [OAuthHandler.TokenSource]
+	// implementation.
+	NewTokenSource func(context.Context, *oauth2.Config, *oauth2.Token) (oauth2.TokenSource, error)
 }
 
 // AuthorizationCodeHandler is an implementation of [OAuthHandler] that uses
@@ -530,6 +543,14 @@ func (h *AuthorizationCodeHandler) exchangeAuthorizationCode(ctx context.Context
 	if err != nil {
 		return fmt.Errorf("token exchange failed: %w", err)
 	}
-	h.tokenSource = cfg.TokenSource(clientCtx, token)
+	if h.config.NewTokenSource != nil {
+		ts, err := h.config.NewTokenSource(ctx, cfg, token)
+		if err != nil {
+			return fmt.Errorf("construction of new token source failed: %v", err)
+		}
+		h.tokenSource = ts
+	} else {
+		h.tokenSource = cfg.TokenSource(clientCtx, token)
+	}
 	return nil
 }

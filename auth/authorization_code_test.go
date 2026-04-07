@@ -749,3 +749,56 @@ func validConfig() *AuthorizationCodeHandlerConfig {
 		},
 	}
 }
+
+func TestNewTokenSource(t *testing.T) {
+	mockTS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token": "test_token", "token_type": "bearer"}`))
+	}))
+	defer mockTS.Close()
+	var called bool
+	// construct an AuthorizationCodeHandler configured with a NewTokenSource callback
+	authCodeHandler := &AuthorizationCodeHandler{
+		config: &AuthorizationCodeHandlerConfig{
+			NewTokenSource: func(ctx context.Context, cfg *oauth2.Config, token *oauth2.Token) (oauth2.TokenSource, error) {
+				called = true
+				if token.AccessToken != "test_token" {
+					t.Errorf("expected test_token, got %s", token.AccessToken)
+				}
+				return oauth2.StaticTokenSource(token), nil
+			},
+			Client: mockTS.Client(),
+		},
+	}
+	// construct oauth2.Config with mock token server URL
+	oauth2Config := &oauth2.Config{
+		Endpoint: oauth2.Endpoint{
+			TokenURL: mockTS.URL,
+		},
+	}
+	successResult := &authResult{
+		AuthorizationResult: &AuthorizationResult{
+			Code: "test_code",
+		},
+	}
+	// code exchange should trigger the NewTokenSource callback
+	err := authCodeHandler.exchangeAuthorizationCode(t.Context(), oauth2Config, successResult, "https://example.com/resource")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected NewTokenSource to be called")
+	}
+	// token source should yield the expected token
+	tokenSrc, err := authCodeHandler.TokenSource(t.Context())
+	if err != nil {
+		t.Fatalf("unexpected error from TokenSource: %v", err)
+	}
+	tok, err := tokenSrc.Token()
+	if err != nil {
+		t.Fatalf("unexpected error from token source: %v", err)
+	}
+	if tok.AccessToken != "test_token" {
+		t.Errorf("expected test_token from handler token source, got %s", tok.AccessToken)
+	}
+}
