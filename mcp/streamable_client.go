@@ -149,6 +149,20 @@ The client must handle two response formats from POST requests:
    - Supports multiple messages and server-initiated communication
    - Stream completes when the response to the originating call is received
 
+# Authorization
+
+When an [OAuthHandler] is configured, the client automatically wraps HTTP requests
+(both POST for messages and GET for SSE streams) with authorization retry logic
+via [streamableClientConn.doWithAuth]:
+
+1. If a request returns a 401/403 status, or if token retrieval fails with an
+   [oauth2.RetrieveError] (e.g., due to an expired refresh token), the client
+   pauses the operation.
+2. It invokes [OAuthHandler.Authorize] to perform the authorization flow and
+   acquire a new valid token.
+3. If successful, the original HTTP request is retried without breaking the
+   connection.
+
 # HTTP Methods
 
   - POST: Send JSON-RPC messages (requests, responses, notifications)
